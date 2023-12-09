@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use bevy::prelude::*;
 use bevy_mod_picking::backends::raycast::bevy_mod_raycast::{prelude::Raycast, primitives::Ray3d};
 use bevy_xpbd_3d::prelude::{Collider, LinearVelocity, RigidBody};
@@ -5,7 +7,8 @@ use rand::{seq::SliceRandom, Rng};
 
 use crate::{
     controller::{CharacterController, DampingFactor},
-    health::Health,
+    health::{Health, UpdateHealth},
+    projectile::Damage,
     Enemy, GameState,
 };
 
@@ -15,7 +18,10 @@ impl Plugin for BehaviorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WaypointCache>().add_systems(
             Update,
-            (update_enemy_behavior, update_enemy_spawners, show_waypoints)
+            (
+                update_enemy_spawners,
+                (update_enemy_behavior, attack_player).chain(),
+            )
                 .run_if(in_state(GameState::Playing)),
         );
     }
@@ -44,12 +50,17 @@ pub struct ProximityThreshold(pub f32);
 #[derive(Component)]
 pub struct VisibiltyRange(pub f32);
 
+#[derive(Component)]
+pub struct AttackCooldownTimer(pub Timer);
+
 #[derive(Bundle)]
 pub struct BehaviorBundle {
     pub target: Target,
     pub threshold: ProximityThreshold,
     pub visibility_range: VisibiltyRange,
     pub damping_factor: DampingFactor,
+    pub attack_timer: AttackCooldownTimer,
+    pub damage: Damage,
 }
 
 impl Default for BehaviorBundle {
@@ -59,6 +70,8 @@ impl Default for BehaviorBundle {
             threshold: ProximityThreshold(5.0),
             visibility_range: VisibiltyRange(14.0),
             damping_factor: DampingFactor(0.92),
+            attack_timer: AttackCooldownTimer(Timer::from_seconds(0.5, TimerMode::Repeating)),
+            damage: Damage(1.0),
         }
     }
 }
@@ -91,10 +104,67 @@ fn update_enemy_behavior(
 ) {
     let (entity, player_transform) = player.single();
 
+    let mut rng = rand::thread_rng();
+
     for (transform, mut lin_vel, threshold, range, mut target) in enemies.iter_mut() {
         let enemy_pos = transform.translation;
+        let player_pos = player_transform.translation;
 
-        if target.2.is_none() {
+        let dist_to_player = player_pos.distance(enemy_pos);
+
+        //let mut dist;
+
+        if dist_to_player <= 10.0 {
+            if dist_to_player >= 6.0 {
+                // move towards player.
+                let d = player_pos - enemy_pos;
+                let angle = d.z.atan2(d.x);
+
+                lin_vel.x += angle.cos() * 40.0 * time.delta_seconds();
+                lin_vel.z += angle.sin() * 40.0 * time.delta_seconds();
+            } else {
+                // move away from player.
+                let d = player_pos - enemy_pos;
+                let angle = d.z.atan2(d.x) + PI;
+
+                lin_vel.x += angle.cos() * 40.0 * time.delta_seconds();
+                lin_vel.z += angle.sin() * 40.0 * time.delta_seconds();
+            }
+        } else if let Some(waypoint) = target.0 {
+            let dist_to_waypoint = waypoint.distance(enemy_pos);
+
+            if dist_to_waypoint > threshold.0 {
+                // move towards waypoint.
+                let d = target.0.unwrap() - enemy_pos;
+                let angle = d.z.atan2(d.x);
+
+                lin_vel.x += angle.cos() * 40.0 * time.delta_seconds();
+                lin_vel.z += angle.sin() * 40.0 * time.delta_seconds();
+            } else {
+                target.1 = target.0;
+                target.0 = None;
+            }
+        } else {
+            // pick a new waypoint to move towards.
+            let nearby_waypoints = waypoints
+                .0
+                .iter()
+                .filter(|point| {
+                    point.position.distance(enemy_pos) <= range.0
+                    //&& !(target.1.is_some() && target.1.unwrap() == point.position)
+                })
+                .collect::<Vec<_>>();
+
+            target.0 = Some(
+                nearby_waypoints
+                    .choose(&mut rng)
+                    .as_ref()
+                    .unwrap_or(&&&waypoints.0[0]) // super cursed.
+                    .position,
+            );
+        }
+
+        /*if target.2.is_none() {
             let distance = player_transform.translation.distance(enemy_pos);
 
             let mut rng = rand::thread_rng();
@@ -147,18 +217,33 @@ fn update_enemy_behavior(
 
             lin_vel.x += angle.cos() * 40.0 * time.delta_seconds();
             lin_vel.z += angle.sin() * 40.0 * time.delta_seconds();
-        } else {
-            raycast.debug_cast_ray(
-                Ray3d::new(enemy_pos, player_transform.translation - enemy_pos),
-                &default(),
-                &mut gizmos,
-            );
-
+        } else if target.2.is_some() && player_transform.translation.distance(enemy_pos) > 5.0 {
             let d = player_transform.translation - enemy_pos;
             let angle = d.z.atan2(d.x);
 
             lin_vel.x += angle.cos() * 40.0 * time.delta_seconds();
             lin_vel.z += angle.sin() * 40.0 * time.delta_seconds();
+        }*/
+    }
+}
+
+fn attack_player(
+    time: Res<Time>,
+    player: Query<(Entity, &Transform), (With<CharacterController>, Without<Enemy>)>,
+    mut enemies: Query<(&Transform, &Damage, &mut AttackCooldownTimer), With<Enemy>>,
+    mut event_writer: EventWriter<UpdateHealth>,
+) {
+    let (player, player_transform) = player.single();
+
+    for (enemy_transform, damage, mut timer) in enemies.iter_mut() {
+        if player_transform
+            .translation
+            .distance(enemy_transform.translation)
+            <= 7.0
+        {
+            if timer.0.tick(time.delta()).just_finished() {
+                event_writer.send(UpdateHealth(player, -damage.0));
+            }
         }
     }
 }
@@ -180,7 +265,7 @@ fn update_enemy_spawners(
                     scene: server.load("models/creep.glb#Scene0"),
                     transform: Transform::from_xyz(
                         transform.translation.x + rand_x_offset,
-                        transform.translation.y + rand_y_offset + 3.0,
+                        transform.translation.y + rand_y_offset + 1.5,
                         transform.translation.z,
                     ),
                     ..default()

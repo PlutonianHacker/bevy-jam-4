@@ -3,14 +3,10 @@ use std::f32::consts::PI;
 use bevy::prelude::*;
 use bevy_xpbd_3d::{prelude::*, SubstepSchedule, SubstepSet};
 
-use crate::{controller::CharacterController, health::UpdateHealth, Enemy};
+use crate::{controller::CharacterController, health::UpdateHealth, Enemy, GameState};
 
 #[derive(Component)]
-pub struct Projectile {
-    pub acc_distance: f32,
-    pub range: f32,
-    pub speed: f32,
-}
+pub struct Projectile;
 
 #[derive(Component)]
 pub struct Damage(pub f32);
@@ -28,7 +24,12 @@ pub struct ProjectilePlugin;
 
 impl Plugin for ProjectilePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (spawn_projectile, update_projectiles));
+        app.add_systems(
+            Update,
+            (spawn_projectile, update_projectiles)
+                .chain()
+                .run_if(in_state(GameState::Playing)),
+        );
         app.add_systems(
             SubstepSchedule,
             handle_projectile_collisions.in_set(SubstepSet::SolveUserConstraints),
@@ -49,6 +50,7 @@ fn spawn_projectile(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     children_query: Query<&Children>,
+    asset_server: Res<AssetServer>,
 ) {
     let (entity, transform) = controllers.single();
 
@@ -63,7 +65,7 @@ fn spawn_projectile(
             };
 
             let mut new_transform = *transform;
-            
+
             new_transform.translation = new_transform
                 .transform_point(weapon_transform.translation + Vec3::new(0.0, 0.0, -1.0)); // + Vec3::new(3.0, 0.0, -1.0));
             new_transform.rotate_local_x(PI / 2.0);
@@ -89,6 +91,19 @@ fn spawn_projectile(
                 Collider::capsule(0.25, 0.1),
                 RigidBody::Kinematic,
             ));
+
+            commands.spawn(AudioBundle {
+                settings: PlaybackSettings {
+                    mode: bevy::audio::PlaybackMode::Despawn,
+                    //volume: Volume::Relative(VolumeLevel::new(5.0)),
+                    spatial: true,
+                    paused: false,
+                    ..default()
+                },
+                //source: asset_server.load("audio/epic-orchestra-transition.wav"),
+                source: asset_server.load("audio/laser-zap.ogg"),
+                ..default()
+            });
         }
     }
 }
@@ -124,9 +139,8 @@ fn handle_projectile_collisions(
             continue;
         };
 
-        println!("collision between {projectile:?} and {enemy:?}");
+        //println!("collision between {projectile:?} and {enemy:?}");
         commands.entity(projectile).despawn_recursive();
-        //commands.entity(enemy).despawn_recursive();
 
         let (_, _, damage) = projectiles.get(projectile).unwrap();
 

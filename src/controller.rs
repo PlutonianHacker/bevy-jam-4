@@ -62,7 +62,7 @@ impl Default for CharacterControllerBundle {
     fn default() -> Self {
         Self {
             character_controller: Default::default(),
-            walking_speed: WalkingSpeed(20.0),
+            walking_speed: WalkingSpeed(30.0),
             rotation_speed: RotationSpeed(4.0),
             pitch_speed: PitchSpeed(0.5),
             damping_factor: DampingFactor(0.92),

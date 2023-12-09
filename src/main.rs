@@ -6,6 +6,7 @@ use bevy::{
     gltf::{Gltf, GltfMesh, GltfNode},
     prelude::*,
 };
+use bevy_gltf_components::ComponentsFromGltfPlugin;
 use bevy_mod_picking::{
     backends::raycast::bevy_mod_raycast::{prelude::Raycast, primitives::Ray3d},
     prelude::{DefaultHighlightingPlugin, PointerLocation},
@@ -20,18 +21,22 @@ use bevy_xpbd_3d::{
     },
 };
 use game::{
-    behavior::{BehaviorBundle, BehaviorPlugin, EnemySpawner, WaypointCache, Waypoint},
+    beacon::{all_beacons_online, Beacon, BeaconPlugin, BeaconState},
+    behavior::{BehaviorBundle, BehaviorPlugin, EnemySpawner, Waypoint, WaypointCache},
     camera::FpsCameraPlugin,
+    cleanup,
     controller::{CharacterController, CharacterControllerBundle, CharacterControllerPlugin},
     door::{Door, DoorPlugin, DoorTrigger},
+    game_over::GameOverPlugin,
     health::{Health, HealthPlugin},
-    projectile::{Damage, Projectile, ProjectileBundle, ProjectilePlugin, Speed, Weapon},
-    Enemy, GameState,
+    portal::{Portal, PortalPlugin, Projector},
+    projectile::{ProjectilePlugin, Weapon},
+    Enemy, GameState, InGame, KillCount,
 };
 use rand::Rng;
 
 #[derive(Resource)]
-pub struct Level(Handle<Gltf>);
+pub struct Level(Handle<Gltf>, Vec<Handle<Gltf>>);
 
 fn load_level(
     mut commands: Commands,
@@ -43,11 +48,19 @@ fn load_level(
     mut next_state: ResMut<NextState<GameState>>,
     mut waypoint_cache: ResMut<WaypointCache>,
     mut raycast: Raycast,
+    server: Res<AssetServer>,
 ) {
     if let Some(gltf) = gltfs.get(&level.0) {
         //for (name, _handle) in &gltf.named_scenes {
         //    println!("{name:?}");
         //}
+
+        commands.spawn((SceneBundle {
+            scene: gltf.scenes[0].clone(), //server.load("models/The_Lab.glb#Scene0"),
+            ..default()
+        },));
+
+        println!("{:?}", gltf.named_nodes);
 
         let mut waypoints = Vec::new();
 
@@ -60,7 +73,7 @@ fn load_level(
 
             match &name[..] {
                 "Portal" => {
-                    let translation = node.transform.translation;
+                    /*let translation = node.transform.translation;
                     commands.spawn((
                         SpatialBundle {
                             transform: Transform::from_xyz(
@@ -71,6 +84,16 @@ fn load_level(
                             ..default()
                         },
                         EnemySpawner(Timer::from_seconds(1.0, TimerMode::Repeating)),
+                    ));*/
+                    commands.spawn((
+                        SceneBundle {
+                            scene: gltf.named_scenes["Scene.001"].clone(),
+                            transform: node.transform,
+                            ..default()
+                        },
+                        Portal,
+                        //RigidBody::Static,
+                        //AsyncCollider(ComputedCollider::TriMesh),
                     ));
                 }
                 "Door" => {
@@ -118,6 +141,21 @@ fn load_level(
                 waypoints.push(node.transform.translation);
             }
 
+            if name.contains("Projector") {
+                commands.spawn((
+                    SceneBundle {
+                        scene: server.load("models/portal_projector.glb#Scene0"),
+                        transform: node.transform,
+                        ..default()
+                    },
+                    Projector,
+                    RigidBody::Static,
+                    Collider::capsule(2.6, 2.0),
+                    //EnemySpawner(Timer::from_seconds(1.0, TimerMode::Repeating)),
+                    //AsyncSceneCollider::new(Some(ComputedCollider::ConvexHull)),
+                ));
+            }
+
             //println!("{:?}", waypoints.0);
 
             /*if name.contains("Lamp") {
@@ -142,7 +180,10 @@ fn load_level(
         next_state.set(GameState::Playing);
 
         for (current_offset, current_pos) in waypoints.iter().enumerate() {
-            let mut waypoint = Waypoint { position: *current_pos, neighbors: Vec::new() };
+            let mut waypoint = Waypoint {
+                position: *current_pos,
+                neighbors: Vec::new(),
+            };
 
             for (other_offset, other_pos) in waypoints.iter().enumerate() {
                 if other_offset != current_offset {
@@ -150,7 +191,7 @@ fn load_level(
 
                     let data = raycast.cast_ray(Ray3d::new(*current_pos, dir), &default());
 
-                    println!("{:?}", data.len());
+                    //println!("{:?}", data.len());
 
                     let mut blocked = false;
                     'hit: for (_, hit) in data.iter() {
@@ -169,7 +210,7 @@ fn load_level(
             waypoint_cache.0.push(waypoint);
         }
 
-        println!("{:#?}", waypoint_cache.0);
+        //println!("{:#?}", waypoint_cache.0);
     }
 }
 
@@ -179,16 +220,16 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    commands.spawn((
-        SceneBundle {
-            scene: server.load("models/The_Lab.glb#Scene0"),
-            ..default()
-        },
-        //AsyncSceneCollider::new(Some(ComputedCollider::TriMesh)),
-        //RigidBody::Static,
+    commands.insert_resource(Level(
+        server.load("models/The_Lab.glb"),
+        vec![
+            server.load("models/red_creep.glb"),
+            server.load("models/creep.glb"),
+            server.load("models/portal_projector.glb"),
+        ],
     ));
 
-    commands.insert_resource(Level(server.load("models/The_Lab.glb")));
+    let _: Handle<AudioSource> = server.load("audio/laser-zap.mp3");
 
     let mut collider = Collider::capsule(2.0, 0.4);
     collider.set_scale(Vec3::ONE * 0.99, 10);
@@ -205,17 +246,18 @@ fn setup(
                     .into(),
                 ),
                 material: materials.add(Color::ALICE_BLUE.into()),
-                transform: Transform::from_xyz(0.0, 3.0, 0.0),
+                transform: Transform::from_xyz(0.0, 3.0, -40.0),
                 ..default()
             },
             CharacterControllerBundle {
                 ..Default::default()
             },
-            Health::new(100.0),
+            Health::new(350.0),
             Collider::capsule(1.0, 0.5),
             RigidBody::Kinematic,
             ShapeCaster::new(collider, Vec3::ZERO, Quat::default(), Vec3::NEG_Y)
                 .with_max_time_of_impact(0.2),
+            //SpatialListener::new(4.0),
         ))
         .id();
 
@@ -232,16 +274,78 @@ fn setup(
         ))
         .set_parent(entity);
 
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(
+                shape::Capsule {
+                    depth: 2.0,
+                    radius: 0.6,
+                    ..default()
+                }
+                .into(),
+            ),
+            material: materials.add(Color::AQUAMARINE.into()),
+            transform: Transform::from_xyz(0.0, 2.0, -30.0),
+            ..default()
+        },
+        Beacon {
+            activation_radius: 5.0,
+            safe_zone_radius: 10.0,
+            heal_factor: 5.0,
+        },
+        BeaconState::Offline,
+    ));
+
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(
+                shape::Capsule {
+                    depth: 2.0,
+                    radius: 0.6,
+                    ..default()
+                }
+                .into(),
+            ),
+            material: materials.add(Color::AQUAMARINE.into()),
+            transform: Transform::from_xyz(-15.0, 2.0, -65.0),
+            ..default()
+        },
+        Beacon {
+            activation_radius: 5.0,
+            safe_zone_radius: 10.0,
+            heal_factor: 5.0,
+        },
+        BeaconState::Online,
+    ));
+
     commands.insert_resource(AmbientLight {
         brightness: 1.0,
         color: Color::WHITE,
     });
 }
 
+fn go_to_gameover(mut next_state: ResMut<NextState<GameState>>) {
+    next_state.set(GameState::GameOver);
+}
+
+fn pause_game(keyboard: Res<Input<KeyCode>>, mut next_state: ResMut<NextState<GameState>>) {
+    if keyboard.just_released(KeyCode::Return) {
+        println!("next state!");
+        next_state.set(GameState::Paused);
+    }
+}
+
+fn unpause_game(keyboard: Res<Input<KeyCode>>, mut next_state: ResMut<NextState<GameState>>) {
+    //if keyboard.just_released(KeyCode::Return) {
+    //    next_state.set(GameState::Playing);
+    //}
+}
+
 fn main() {
     let mut app = App::new();
 
     app.add_state::<GameState>();
+    app.init_resource::<KillCount>();
 
     app.add_plugins((
         DefaultPlugins,
@@ -250,25 +354,30 @@ fn main() {
             .disable::<DefaultHighlightingPlugin>(),
         PhysicsPlugins::default(),
         //PhysicsDebugPlugin::default(),
+        //ComponentsFromGltfPlugin::default(),
         CharacterControllerPlugin,
         FpsCameraPlugin,
         ProjectilePlugin,
+        BehaviorPlugin,
         HealthPlugin,
         DoorPlugin,
-        BehaviorPlugin,
+        BeaconPlugin,
+        PortalPlugin,
+        GameOverPlugin,
     ));
     app.add_systems(Startup, setup);
     app.add_systems(Update, (load_level,).run_if(in_state(GameState::Loading)));
     app.add_systems(
         Update,
-        (
-            //update_enemy_spawners,
-            //update_enemies,
-            //spawn_projectile,
-            move_scene_entities,
-        )
-            .run_if(in_state(GameState::Playing)),
+        go_to_gameover
+            .run_if(in_state(GameState::Playing))
+            .run_if(all_beacons_online),
     );
+
+    app.add_systems(PostUpdate, pause_game.run_if(in_state(GameState::Playing)));
+    app.add_systems(Update, unpause_game.run_if(in_state(GameState::Paused)));
+
+    app.add_systems(OnEnter(GameState::GameOver), cleanup::<InGame>);
 
     #[cfg(not(release))]
     {
@@ -276,20 +385,4 @@ fn main() {
     }
 
     app.run();
-}
-
-fn move_scene_entities(
-    time: Res<Time>,
-    moved_scene: Query<Entity>,
-    children: Query<&Children>,
-    mut transforms: Query<&Name>,
-) {
-    for moved_scene_entity in &moved_scene {
-        let mut offset = 0.;
-        for entity in children.iter_descendants(moved_scene_entity) {
-            if let Ok(name) = transforms.get_mut(entity) {
-                println!("{name:?}");
-            }
-        }
-    }
 }

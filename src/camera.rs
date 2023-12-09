@@ -2,14 +2,14 @@ use std::f32::consts::PI;
 
 use bevy::{core_pipeline::{tonemapping::Tonemapping, bloom::BloomSettings}, prelude::*};
 
-use crate::controller::CharacterController;
+use crate::{controller::CharacterController, GameState};
 
 pub struct FpsCameraPlugin;
 
 impl Plugin for FpsCameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup);
-        app.add_systems(PostUpdate, follow_player);
+        app.add_systems(PostUpdate, follow_player.run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -19,7 +19,7 @@ pub struct FpsCamera;
 fn setup(mut commands: Commands) {
     commands.spawn((
         Camera3dBundle {
-            //transform: Transform::from_xyz(0.0, 60.0, -60.0).with_rotation(Quat::from_euler(EulerRot::XYZ, -PI / 2.0, 0.0, 0.0)),
+            transform: Transform::from_xyz(0.0, 60.0, -60.0).with_rotation(Quat::from_euler(EulerRot::XYZ, -PI / 2.0, 0.0, 0.0)),
             //.with_rotation(Quat::from_rotation_y(90.0 * (PI / 180.0))), //.looking_at(Vec3::new(), Vec3::Y),
             projection: Projection::Perspective(PerspectiveProjection {
                 fov: 45.0 * (PI / 180.0),
@@ -27,6 +27,7 @@ fn setup(mut commands: Commands) {
             }),
             camera: Camera {
                 hdr: true,
+                order: 2,
                 ..default()
             },
             tonemapping: Tonemapping::AcesFitted,
@@ -37,6 +38,14 @@ fn setup(mut commands: Commands) {
             ..default()
         }
     ));
+
+    commands.spawn(Camera2dBundle {
+        camera: Camera {
+            order: 0,
+            ..default()
+        },
+        ..default()
+    });
 }
 
 fn follow_player(
@@ -50,4 +59,5 @@ fn follow_player(
     let mut camera_transform = camera.single_mut();
     *camera_transform = *controller_transform;
     camera_transform.translation.y += 1.0;
+    //camera_transform.translation.z -= 1.0;
 }   

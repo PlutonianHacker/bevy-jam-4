@@ -1,13 +1,13 @@
 use bevy::prelude::*;
 use bevy_xpbd_3d::prelude::Collisions;
 
-use crate::controller::CharacterController;
+use crate::{controller::CharacterController, GameState};
 
 pub struct DoorPlugin;
 
 impl Plugin for DoorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, trigger_door);
+        app.add_systems(Update, trigger_door.run_if(in_state(GameState::Playing)));
     }
 }
 
