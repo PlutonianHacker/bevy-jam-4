@@ -7,6 +7,7 @@ use bevy::{
     prelude::*,
 };
 use bevy_gltf_components::ComponentsFromGltfPlugin;
+use bevy_mod_billboard::{BillboardLockAxis, BillboardTextBundle, prelude::BillboardPlugin};
 use bevy_mod_picking::{
     backends::raycast::bevy_mod_raycast::{prelude::Raycast, primitives::Ray3d},
     prelude::{DefaultHighlightingPlugin, PointerLocation},
@@ -318,6 +319,26 @@ fn setup(
         BeaconState::Online,
     ));
 
+    /*commands.spawn((
+        BillboardTextBundle {
+            transform: Transform::from_xyz(-15.0, 5.0, -65.0),
+            text: Text::from_section(
+                "42",
+                TextStyle {
+                    font_size: 36.,
+                    color: Color::WHITE,
+                    font: server.load("fonts/motion-control.bold.otf"),
+                },
+            )
+            .with_alignment(TextAlignment::Center),
+            ..default()
+        },
+        /*BillboardLockAxis {
+            //rotation: true,
+            ..default()
+        },*/
+    ));*/
+
     commands.insert_resource(AmbientLight {
         brightness: 1.0,
         color: Color::WHITE,
@@ -353,6 +374,7 @@ fn main() {
             .build()
             .disable::<DefaultHighlightingPlugin>(),
         PhysicsPlugins::default(),
+        BillboardPlugin,
         //PhysicsDebugPlugin::default(),
         //ComponentsFromGltfPlugin::default(),
         CharacterControllerPlugin,
