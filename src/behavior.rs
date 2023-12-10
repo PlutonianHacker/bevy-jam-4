@@ -16,14 +16,13 @@ pub struct BehaviorPlugin;
 
 impl Plugin for BehaviorPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<WaypointCache>().add_systems(
-            Update,
-            (
-                update_enemy_spawners,
-                (update_enemy_behavior, attack_player).chain(),
+        app.init_resource::<WaypointCache>()
+            .add_systems(
+                Update,
+                ((update_enemy_behavior, attack_player).chain(),)
+                    .run_if(in_state(GameState::Playing)),
             )
-                .run_if(in_state(GameState::Playing)),
-        );
+            .add_systems(OnEnter(GameState::GameOver), crate::cleanup::<Enemy>);
     }
 }
 
@@ -67,8 +66,8 @@ impl Default for BehaviorBundle {
     fn default() -> Self {
         Self {
             target: Default::default(),
-            threshold: ProximityThreshold(5.0),
-            visibility_range: VisibiltyRange(14.0),
+            threshold: ProximityThreshold(6.0),
+            visibility_range: VisibiltyRange(25.0),
             damping_factor: DampingFactor(0.92),
             attack_timer: AttackCooldownTimer(Timer::from_seconds(0.5, TimerMode::Repeating)),
             damage: Damage(1.0),
@@ -244,38 +243,6 @@ fn attack_player(
             if timer.0.tick(time.delta()).just_finished() {
                 event_writer.send(UpdateHealth(player, -damage.0));
             }
-        }
-    }
-}
-
-fn update_enemy_spawners(
-    time: Res<Time>,
-    mut commands: Commands,
-    mut spawners: Query<(&mut EnemySpawner, &Transform)>,
-    server: Res<AssetServer>,
-) {
-    for (mut spawner, transform) in spawners.iter_mut() {
-        if spawner.tick(time.delta()).just_finished() {
-            let mut rng = rand::thread_rng();
-            let rand_y_offset = rng.gen_range(0.0..2.0);
-            let rand_x_offset = rng.gen_range(-1.5..1.5);
-
-            commands.spawn((
-                SceneBundle {
-                    scene: server.load("models/creep.glb#Scene0"),
-                    transform: Transform::from_xyz(
-                        transform.translation.x + rand_x_offset,
-                        transform.translation.y + rand_y_offset + 1.5,
-                        transform.translation.z,
-                    ),
-                    ..default()
-                },
-                Enemy,
-                Health::new(100.0),
-                Collider::capsule(0.8, 0.6),
-                RigidBody::Kinematic,
-                BehaviorBundle::default(),
-            ));
         }
     }
 }

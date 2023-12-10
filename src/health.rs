@@ -1,13 +1,13 @@
 use bevy::{ecs::system::SystemId, prelude::*};
 
-use crate::{cleanup, controller::CharacterController, Enemy, GameState, InGame, KillCount};
+use crate::{cleanup, controller::CharacterController, Enemy, GameState, InGame, KillCount, game_over::Outcome};
 
 pub struct HealthPlugin;
 
 impl Plugin for HealthPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<UpdateHealth>();
-        app.add_systems(OnEnter(GameState::Playing), spawn_player_health);
+        app.add_systems(OnEnter(GameState::BeginGame), spawn_player_health);
         app.add_systems(
             Update,
             (update_healths, update_player_health)
@@ -60,6 +60,7 @@ fn update_healths(
                 println!("Game Over!");
 
                 next_state.set(GameState::GameOver);
+                commands.insert_resource(Outcome::Lost);
 
                 return;
             } else if maybe_enemy.is_some() {

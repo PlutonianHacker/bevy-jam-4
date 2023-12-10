@@ -1,12 +1,23 @@
 use bevy::{app::AppExit, prelude::*};
 use bevy_mod_picking::prelude::*;
 
-use crate::{cleanup, GameState};
+use crate::{cleanup, levels::Levels, GameState};
+
+#[derive(Debug, Resource, PartialEq, Eq, Copy, Clone)]
+pub enum Outcome {
+    Won,
+    Lost,
+}
+
+#[derive(Event)]
+pub struct EndGame(pub Outcome);
 
 pub struct GameOverPlugin;
 
 impl Plugin for GameOverPlugin {
     fn build(&self, app: &mut App) {
+        app.add_event::<EndGame>();
+
         app.add_systems(OnEnter(GameState::GameOver), spawn_gameover_menu)
             .add_systems(OnExit(GameState::GameOver), cleanup::<Root>);
 
@@ -23,7 +34,12 @@ pub struct Root;
 #[derive(Component)]
 pub struct Button;
 
-fn spawn_gameover_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn spawn_gameover_menu(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    outcome: Res<Outcome>,
+    levels: ResMut<Levels>,
+) {
     let wrapper = commands
         .spawn((
             NodeBundle {
@@ -86,7 +102,10 @@ fn spawn_gameover_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             TextBundle::from_section(
-                "YOU WON!",
+                match *outcome {
+                    Outcome::Won => "YOU WON!",
+                    Outcome::Lost => "YOU LOST!",
+                },
                 TextStyle {
                     font_size: 36.,
                     color: Color::WHITE,
@@ -106,6 +125,8 @@ fn spawn_gameover_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
         ))
         .set_parent(root);
 
+    let outcome = *outcome;
+
     commands
         .spawn((
             ButtonBundle {
@@ -119,15 +140,34 @@ fn spawn_gameover_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
                 },
                 ..default()
             },
-            On::<Pointer<Click>>::run(|mut next_state: ResMut<NextState<GameState>>| {
-                next_state.set(GameState::Playing)
-            }),
+            On::<Pointer<Click>>::run(
+                move |mut next_state: ResMut<NextState<GameState>>, mut levels: ResMut<Levels>| {
+                    levels.current_level = if levels.current_level == levels.data.len() - 1 {
+                        1
+                    } else if outcome == Outcome::Lost {
+                        levels.current_level
+                    } else {
+                        levels.current_level + 1
+                    };
+
+                    next_state.set(GameState::LoadGame)
+                },
+            ),
             Button,
         ))
         .with_children(|parent| {
             parent.spawn((
                 TextBundle::from_section(
-                    "PLAY AGAIN",
+                    match outcome {
+                        Outcome::Won => {
+                            if levels.current_level == levels.data.len() - 1 {
+                                "PLAY AGAIN"
+                            } else {
+                                "NEXT LEVEL"
+                            }
+                        }
+                        Outcome::Lost => "TRY AGAIN",
+                    },
                     TextStyle {
                         font_size: 42.,
                         color: Color::WHITE,
@@ -218,7 +258,7 @@ fn spawn_pause_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
         })
         .set_parent(wrapper)
         .id();
-    
+
     commands
         .spawn((
             ButtonBundle {
@@ -387,7 +427,6 @@ fn spawn_help_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
         })
         .set_parent(root);
 }
-
 
 fn update_button_colors(
     mut buttons: Query<(Option<&PickingInteraction>, &mut BackgroundColor), With<Button>>,

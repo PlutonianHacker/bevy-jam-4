@@ -26,11 +26,12 @@ impl Plugin for ProjectilePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (spawn_projectile, update_projectiles)
+            (/*spawn_projectile*/update_projectiles)
                 .chain()
                 .run_if(in_state(GameState::Playing)),
-        );
-        app.add_systems(
+        )
+        .add_systems(OnEnter(GameState::GameOver), crate::cleanup::<Projectile>)
+        .add_systems(
             SubstepSchedule,
             handle_projectile_collisions.in_set(SubstepSet::SolveUserConstraints),
         );
@@ -108,7 +109,10 @@ fn spawn_projectile(
     }
 }
 
-fn update_projectiles(time: Res<Time>, mut projectiles: Query<(&Speed, &mut Transform)>) {
+fn update_projectiles(
+    time: Res<Time>,
+    mut projectiles: Query<(&Speed, &mut Transform), With<Projectile>>,
+) {
     for (speed, mut transform) in projectiles.iter_mut() {
         transform.translation =
             transform.transform_point(Vec3::new(0.0, -time.delta_seconds() * speed.0, 0.0));
@@ -117,7 +121,7 @@ fn update_projectiles(time: Res<Time>, mut projectiles: Query<(&Speed, &mut Tran
 
 fn handle_projectile_collisions(
     mut commands: Commands,
-    projectiles: Query<(Entity, &Speed, &Damage)>,
+    projectiles: Query<(Entity, &Speed, &Damage), With<Projectile>>,
     enemies: Query<Entity, With<Enemy>>,
     mut collision_events: EventReader<CollisionStarted>,
     mut update_health_events: EventWriter<UpdateHealth>,

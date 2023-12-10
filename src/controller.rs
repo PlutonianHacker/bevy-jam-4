@@ -62,10 +62,10 @@ impl Default for CharacterControllerBundle {
     fn default() -> Self {
         Self {
             character_controller: Default::default(),
-            walking_speed: WalkingSpeed(30.0),
-            rotation_speed: RotationSpeed(4.0),
-            pitch_speed: PitchSpeed(0.5),
-            damping_factor: DampingFactor(0.92),
+            walking_speed: WalkingSpeed(35.0),
+            rotation_speed: RotationSpeed(8.0),
+            pitch_speed: PitchSpeed(0.75),
+            damping_factor: DampingFactor(0.94),
             angular_damping_factor: AngularDampingFactor(0.92),
         }
     }
@@ -86,10 +86,10 @@ fn handle_input(
 ) {
     let w = keyboard.any_pressed([KeyCode::W, KeyCode::Up]);
     let a = keyboard.any_pressed([KeyCode::A, KeyCode::Right]);
-    let s = keyboard.any_pressed([KeyCode::S, KeyCode::Left]);
-    let d = keyboard.any_pressed([KeyCode::D, KeyCode::Down]);
+    let s = keyboard.any_pressed([KeyCode::S, KeyCode::Down]);
+    let d = keyboard.any_pressed([KeyCode::D, KeyCode::Left]);
 
-    match (w, a, s, d) {
+    /*match (w, a, s, d) {
         (true, true, false, false) => writer.send(CharacterAction::Sidestep(-1.0)),
         (true, false, false, true) => writer.send(CharacterAction::Sidestep(1.0)),
         (true, false, false, false) => writer.send(CharacterAction::Move(-1.0)),
@@ -97,7 +97,10 @@ fn handle_input(
         (false, true, false, false) => writer.send(CharacterAction::Turn(1.0)),
         (false, false, false, true) => writer.send(CharacterAction::Turn(-1.0)),
         _ => {}
-    }
+    }*/
+
+    if w { writer.send(CharacterAction::Move(-1.0)) } else if s { writer.send(CharacterAction::Move(1.0)) }
+    if a { writer.send(CharacterAction::Turn(1.0)) } else if d { writer.send(CharacterAction::Turn(-1.0)) }
 
     let mut scroll = 0.0;
 

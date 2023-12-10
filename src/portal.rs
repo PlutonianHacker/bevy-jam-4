@@ -1,6 +1,13 @@
 use bevy::prelude::*;
+use bevy_xpbd_3d::prelude::*;
+use rand::Rng;
 
-use crate::GameState;
+use crate::{
+    beacon::{Beacon, BeaconState},
+    behavior::{BehaviorBundle, EnemySpawner},
+    health::Health,
+    Enemy, GameState,
+};
 
 pub struct PortalPlugin;
 
@@ -9,8 +16,14 @@ impl Plugin for PortalPlugin {
         app.register_type::<Portal>()
             .register_type::<PortalId>()
             .add_systems(OnEnter(GameState::Playing), position_projectors)
-            .add_systems(OnEnter(GameState::Playing), show_projector_hit)
-            .add_systems(Update, update_hit_timers.run_if(in_state(GameState::Playing)));
+            .add_systems(
+                Update,
+                (
+                    (close_portals, change_portal_color).chain(),
+                    update_enemy_spawners,
+                )
+                    .run_if(in_state(GameState::Playing)),
+            );
     }
 }
 
@@ -21,6 +34,13 @@ pub struct Portal;
 #[derive(Component, Reflect, Default, Debug)]
 #[reflect(Component)]
 pub struct PortalId(pub u32);
+
+#[derive(Component, Default, PartialEq, Eq)]
+pub enum PortalState {
+    #[default]
+    Open,
+    Closed,
+}
 
 #[derive(Component)]
 pub struct Projector;
@@ -54,51 +74,84 @@ fn position_projectors(
     }
 }
 
-fn show_projector_hit(
+fn update_enemy_spawners(
+    time: Res<Time>,
     mut commands: Commands,
-    parents: Query<Entity, With<Projector>>,
-    children: Query<&Children>,
-    material_handles: Query<&Handle<StandardMaterial>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut spawners: Query<(&mut EnemySpawner, &Transform, &PortalState)>,
+    server: Res<AssetServer>,
 ) {
-    for entity in parents.iter() {
-        for descendant in children.iter_descendants(entity) {
-            if let Ok(handle) = material_handles.get(descendant) {
-                let mat = materials.get_mut(handle).unwrap();
-                //let color = mat.base_color.clone();
+    for (mut spawner, transform, _) in spawners
+        .iter_mut()
+        .filter(|(_, _, state)| **state == PortalState::Open)
+    {
+        if spawner.tick(time.delta()).just_finished() {
+            let mut rng = rand::thread_rng();
+            let rand_y_offset = rng.gen_range(0.0..2.0);
+            let rand_x_offset = rng.gen_range(-1.5..1.5);
 
-                //println!("color: {:?}", mat.base_color);
-                
-                commands.entity(descendant).insert(HitTimer(
-                    Timer::from_seconds(1.0, TimerMode::Once),
-                    handle.clone(),
-                ));
-
-                //*mat = Color::RED.into(); 
-
-                //mat.base_color = Color::BLUE;
-            }
+            commands.spawn((
+                SceneBundle {
+                    scene: server.load("models/creep.glb#Scene0"),
+                    transform: Transform::from_xyz(
+                        transform.translation.x + rand_x_offset,
+                        transform.translation.y + rand_y_offset + 1.5,
+                        transform.translation.z,
+                    ),
+                    ..default()
+                },
+                Enemy,
+                Health::new(100.0),
+                Collider::capsule(0.8, 0.6),
+                RigidBody::Kinematic,
+                BehaviorBundle::default(),
+            ));
         }
     }
 }
 
-fn update_hit_timers(
+fn close_portals(
+    mut portals: Query<(&Transform, &mut PortalState), With<Portal>>,
+    beacons: Query<(&Transform, &BeaconState), (With<Beacon>, Without<Portal>)>,
+) {
+    for (portal_transform, mut portal_state) in portals
+        .iter_mut()
+        .filter(|(_, state)| **state == PortalState::Open)
+    {
+        if beacons
+            .iter()
+            .filter(|(transform, _)| {
+                portal_transform.translation.distance(transform.translation) <= 30.0
+            })
+            .all(|(_, state)| *state == BeaconState::Online)
+        {
+            *portal_state = PortalState::Closed;
+        }
+    }
+}
+
+fn change_portal_color(
     mut commands: Commands,
-    time: Res<Time>,
-    mut timers: Query<(Entity, &mut HitTimer, &mut Handle<StandardMaterial>)>,
+    portals: Query<(Entity, &PortalState), Or<(Added<PortalState>, Changed<PortalState>)>>,
+    children: Query<&Children>,
+    mat_query: Query<(&mut Handle<StandardMaterial>, &Name)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (entity, mut timer, mut handle) in timers.iter_mut() {
-        if timer.0.tick(time.delta()).finished() {
-            //let mat = materials.get_mut(handle).unwrap();
+    for (beacon, state) in portals.iter() {
+        for descendant in children.iter_descendants(beacon) {
+            if let Ok((_, name)) = mat_query.get(descendant) {
+                info!("{:?}", name.as_str());
+                if name.as_str().contains("Portal") {
+                    // <- hard coded, cause why not.
+                    let color = match state {
+                        PortalState::Closed => Color::GREEN,
+                        PortalState::Open => Color::RED,
+                    };
 
-            //println!("{:?}", timer.1);
+                    let mat = materials.add((color * 7.0).into());
 
-            *handle = timer.1.clone();
-
-            //mat.base_color = timer.1;
-
-            commands.entity(entity).remove::<HitTimer>();//.insert(timer.1.clone());
+                    commands.entity(descendant).insert(mat);
+                }
+            }
         }
     }
 }
