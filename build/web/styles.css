@@ -1,0 +1,19 @@
+body, html {
+    height: 100%;
+}
+
+body {
+    background-color: black;
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/*.game_container {
+    width: 800px;
+    height: 600px;
+    display: flex;
+    justify-content: ;
+}
+*/

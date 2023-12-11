@@ -610,6 +610,15 @@ fn main() {
         (
             DefaultPickingPlugins
                 .build()
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Liminal Combat".to_string(),
+                        canvas: Some("#bevy".to_string()),
+                        //prevent_default_event_handling: false,
+                        ..default()
+                    }),
+                    ..default()
+                })
                 .disable::<DefaultHighlightingPlugin>(),
             PhysicsPlugins::default(),
             BillboardPlugin,

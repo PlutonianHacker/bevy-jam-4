@@ -13,6 +13,8 @@ rand = "0.8.5"
 bevy_gltf_components = "0.2.0" 
 bevy_mod_outline = "0.6"
 bevy_mod_billboard = "0.5.1"
+bevy_pkv = "0.9.0"
+bevy_kira_audio = "0.18.0"
 
 [profile.dev.package."*"]
 opt-level = 3
